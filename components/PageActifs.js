@@ -189,7 +189,7 @@ export default function PageActifs({ P }) {
                     return (
                       <button key={m.id} onClick={() => setModal({ type: 'addMetal', data: { metalId: m.id, metal: m } })}
                         style={{ padding: '8px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-m)', fontFamily: "'Outfit', sans-serif", fontSize: 12, fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontWeight: 700 }}>{m.symbol}</span> {m.name}{m.id !== "gold" ? " (≈ approx.)" : ""}
+                        <span style={{ fontWeight: 700 }}>{m.symbol}</span> {m.name}
                         <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: m.changePct >= 0 ? 'var(--green)' : 'var(--red)' }}>
                           {arrow} {m.pricePerGram > 0 ? fmt(m.pricePerGram) + '/g' : '—'}
                         </span>
