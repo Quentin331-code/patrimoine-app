@@ -33,11 +33,10 @@ export async function GET() {
   }
   const results = { stocks: {}, crypto: {}, metals: {}, ts: now, sources: {} };
 
-  // CRYPTO + METALS in ONE CoinGecko call
+  // CRYPTO via CoinGecko (single call)
   try {
     const cryptoIds = Object.values(CRYPTO_IDS).join(',');
-    const allIds = cryptoIds + ',tether-gold';
-    const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${allIds}&vs_currencies=eur&include_24hr_change=true`, { cache: 'no-store', signal: AbortSignal.timeout(10000) });
+    const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${cryptoIds}&vs_currencies=eur&include_24hr_change=true`, { cache: 'no-store', signal: AbortSignal.timeout(10000) });
     if (r.ok) {
       const data = await r.json();
       if (data?.bitcoin?.eur) {
@@ -47,19 +46,10 @@ export async function GET() {
         });
         results.sources.crypto = 'coingecko';
       }
-      if (data?.['tether-gold']?.eur) {
-        const goldOz = data['tether-gold'].eur;
-        const goldGram = goldOz / 31.1035;
-        results.metals.gold = { pricePerGram: goldGram };
-        results.metals.silver = { pricePerGram: goldGram / 85 };
-        results.metals.platinum = { pricePerGram: goldGram * 0.35 };
-        results.metals.palladium = { pricePerGram: goldGram * 0.33 };
-        results.sources.metals = 'coingecko-xaut';
-      }
     }
   } catch (e) { console.error('CoinGecko:', e.message); }
 
-  // STOCKS - Yahoo Finance
+  // STOCKS via Yahoo Finance
   const allStocks = STOCKS_DB.filter(s => s.type === 'Action' || s.type === 'ETF');
   for (let i = 0; i < allStocks.length; i += 5) {
     const batch = allStocks.slice(i, i + 5);
@@ -71,6 +61,56 @@ export async function GET() {
   }
   if (Object.keys(results.stocks).length > 0) {
     results.sources.stocks = 'yahoo';
+  }
+
+  // METALS via Yahoo Finance (real futures prices in USD/oz)
+  try {
+    // First get EUR/USD rate
+    const eurUsd = await fetchYahooPrice('EURUSD=X');
+    const rate = eurUsd ? eurUsd.price : 1.08; // fallback rate
+
+    const metalTickers = [
+      { id: 'gold', ticker: 'GC=F', name: 'Or' },
+      { id: 'silver', ticker: 'SI=F', name: 'Argent' },
+      { id: 'platinum', ticker: 'PL=F', name: 'Platine' },
+      { id: 'palladium', ticker: 'PA=F', name: 'Palladium' },
+    ];
+
+    const metalPromises = metalTickers.map(async (m) => {
+      const result = await fetchYahooPrice(m.ticker);
+      if (result && result.price > 0) {
+        // Convert USD/oz to EUR/gram
+        const priceEurPerGram = (result.price / rate) / 31.1035;
+        results.metals[m.id] = {
+          pricePerGram: priceEurPerGram,
+          changePct: result.changePct,
+        };
+      }
+    });
+    await Promise.all(metalPromises);
+
+    if (Object.keys(results.metals).length > 0) {
+      results.sources.metals = 'yahoo';
+      console.log('Metaux Yahoo: ' + Object.keys(results.metals).length + '/4');
+    }
+  } catch (e) { console.error('Metals Yahoo:', e.message); }
+
+  // Fallback metals via CoinGecko if Yahoo failed
+  if (!results.sources.metals) {
+    try {
+      const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=tether-gold&vs_currencies=eur', { cache: 'no-store', signal: AbortSignal.timeout(5000) });
+      if (r.ok) {
+        const data = await r.json();
+        if (data?.['tether-gold']?.eur) {
+          const goldGram = data['tether-gold'].eur / 31.1035;
+          results.metals.gold = { pricePerGram: goldGram };
+          results.metals.silver = { pricePerGram: goldGram / 85 };
+          results.metals.platinum = { pricePerGram: goldGram * 0.35 };
+          results.metals.palladium = { pricePerGram: goldGram * 0.33 };
+          results.sources.metals = 'coingecko-fallback';
+        }
+      }
+    } catch (e) {}
   }
 
   cache = results;
